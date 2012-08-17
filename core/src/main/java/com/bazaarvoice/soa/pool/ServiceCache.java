@@ -3,7 +3,14 @@ package com.bazaarvoice.soa.pool;
 import com.bazaarvoice.soa.ServiceEndPoint;
 import com.bazaarvoice.soa.ServiceFactory;
 import com.bazaarvoice.soa.exceptions.NoCachedInstancesAvailableException;
+import com.bazaarvoice.soa.metrics.Described;
+import com.bazaarvoice.soa.metrics.MeterDescriptor;
+import com.bazaarvoice.soa.metrics.OstrichMetrics;
+import com.bazaarvoice.soa.metrics.OstrichMetricsDescriptor;
+import com.bazaarvoice.soa.metrics.RatioGaugeDescriptor;
+import com.bazaarvoice.soa.metrics.TimerDescriptor;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.MapMaker;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -38,13 +45,46 @@ class ServiceCache<S> implements Closeable {
     /** How often to try to evict old service instances. */
     @VisibleForTesting
     static final long EVICTION_DURATION_IN_SECONDS = 300;
-
     private final GenericKeyedObjectPool<ServiceEndPoint, S> _pool;
     private final AtomicLong _revisionNumber = new AtomicLong();
     private final Map<ServiceEndPoint, Long> _invalidRevisions = new MapMaker().weakKeys().makeMap();
     private final Map<S, Long> _checkOutRevisions = Maps.newConcurrentMap();
     private final Future<?> _evictionFuture;
     private volatile boolean _isClosed = false;
+    private final OstrichMetrics<ServiceCacheMetrics> _metrics;
+
+    enum ServiceCacheMetrics implements Described {
+        EVICTION {
+            @Override
+            public OstrichMetricsDescriptor getDescription() {
+                return new TimerDescriptor("service-cache-eviction-run", TimeUnit.MICROSECONDS, TimeUnit.SECONDS);
+            }
+        },
+        EVICTION_RATE {
+            @Override
+            public OstrichMetricsDescriptor getDescription() {
+                return new MeterDescriptor("service-cache-eviction-rate", "evictions", TimeUnit.SECONDS);
+            }
+        },
+        CACHE_MISSES {
+            @Override
+            public OstrichMetricsDescriptor getDescription() {
+                return new TimerDescriptor("service-cache-misses", TimeUnit.MICROSECONDS, TimeUnit.SECONDS);
+            }
+        },
+        CACHE_CHECKOUTS {
+            @Override
+            public OstrichMetricsDescriptor getDescription() {
+                return new MeterDescriptor("service-cache-checkouts", "checkouts", TimeUnit.SECONDS);
+            }
+        },
+        CACHE_MISS_PERCENTAGE {
+            @Override
+            public OstrichMetricsDescriptor getDescription() {
+                return new RatioGaugeDescriptor<ServiceCacheMetrics, ServiceCacheMetrics>("service-cache-hit-percentage", CACHE_MISSES, CACHE_CHECKOUTS, true);
+            }
+        }
+    }
 
     /**
      * Builds a basic service cache.
@@ -104,15 +144,22 @@ class ServiceCache<S> implements Closeable {
                 ? executor.scheduleAtFixedRate(new Runnable() {
                       @Override
                       public void run() {
+                          Stopwatch watch = new Stopwatch();
+                          watch.start();
                           try {
                               _pool.evict();
                           } catch (Exception e) {
                               // Should never happen, but log just in case. Swallow exception so thread doesn't die.
                               LOG.error("ServiceCache eviction run failed.", e);
+                          } finally {
+                              watch.stop();
+                              _metrics.getMetric(ServiceCacheMetrics.EVICTION).update(watch.elapsedTime(TimeUnit.MICROSECONDS));
                           }
                       }
                   }, EVICTION_DURATION_IN_SECONDS, EVICTION_DURATION_IN_SECONDS, TimeUnit.SECONDS)
                 : null;
+
+        _metrics = OstrichMetrics.Builder.forMetrics(ServiceCacheMetrics.class).withDomain(getClass()).withScope(serviceFactory.getServiceName()).build();
     }
 
     @VisibleForTesting
@@ -134,6 +181,7 @@ class ServiceCache<S> implements Closeable {
         checkNotNull(endPoint);
 
         try {
+            _metrics.getMetric(ServiceCacheMetrics.CACHE_CHECKOUTS).update();
             S service = _pool.borrowObject(endPoint);
 
             // Remember the revision that we've checked this service out on in case we need to invalidate it later
@@ -141,8 +189,9 @@ class ServiceCache<S> implements Closeable {
 
             return service;
         } catch (NoSuchElementException e) {
-            // This will happen if there are no available connections and there is no room for a new one,
-            // or if a newly created connection is not valid.
+            _metrics.getMetric(ServiceCacheMetrics.CACHE_MISSES).update();
+            // This will happen if there are no available instances and there is no room for a new one,
+            // or if a newly created instance is not valid.
             throw new NoCachedInstancesAvailableException();
         }
     }
@@ -199,16 +248,22 @@ class ServiceCache<S> implements Closeable {
         _pool.clear(endPoint);
     }
 
-    private static class PoolServiceFactory<S> extends BaseKeyedPoolableObjectFactory<ServiceEndPoint, S> {
+    private class PoolServiceFactory<S> extends BaseKeyedPoolableObjectFactory<ServiceEndPoint, S> {
         private final ServiceFactory<S> _serviceFactory;
 
-        public PoolServiceFactory(ServiceFactory<S> serviceFactory) {
+        private PoolServiceFactory(ServiceFactory<S> serviceFactory) {
             _serviceFactory = serviceFactory;
         }
 
         @Override
         public S makeObject(ServiceEndPoint endPoint) throws Exception {
+            _metrics.getMetric(ServiceCacheMetrics.CACHE_MISSES).update();
             return _serviceFactory.create(endPoint);
+        }
+
+        @Override
+        public void destroyObject(ServiceEndPoint key, S obj) throws Exception {
+            _metrics.getMetric(ServiceCacheMetrics.EVICTION_RATE).update();
         }
     }
 }
