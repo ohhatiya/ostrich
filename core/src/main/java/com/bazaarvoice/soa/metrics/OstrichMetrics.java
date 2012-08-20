@@ -7,10 +7,15 @@ import com.yammer.metrics.core.Counter;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Histogram;
 import com.yammer.metrics.core.Meter;
+import com.yammer.metrics.core.Metric;
+import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.core.MetricPredicate;
+import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
 import com.yammer.metrics.util.PercentGauge;
 import com.yammer.metrics.util.RatioGauge;
 
+import java.io.Closeable;
 import java.util.EnumMap;
 import java.util.UUID;
 
@@ -18,7 +23,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
-public class OstrichMetrics<E extends Enum & Described> {
+public class OstrichMetrics<E extends Enum & Described> implements Closeable {
     private final Class<?> _class;
     private final String _uniqueScope;
     private final EnumMap<E, OstrichMetric> _metrics;
@@ -36,6 +41,14 @@ public class OstrichMetrics<E extends Enum & Described> {
     public OstrichMetric getMetric(E metric) {
         checkNotNull(metric);
         return _metrics.get(metric);
+    }
+
+    @Override
+    public void close() {
+        MetricsRegistry registry = Metrics.defaultRegistry();
+        for (E metric : _metrics.keySet()) {
+            registry.removeMetric(_class, metric.getDescription().getName(), _uniqueScope);
+        }
     }
 
     private OstrichMetrics(Class type, String uniqueScope, Class<E> enumType) {

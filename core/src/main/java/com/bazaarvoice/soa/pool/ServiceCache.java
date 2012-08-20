@@ -238,6 +238,7 @@ class ServiceCache<S> implements Closeable {
         }
 
         _pool.clear();
+        _metrics.close();
     }
 
     public void evict(ServiceEndPoint endPoint) {
