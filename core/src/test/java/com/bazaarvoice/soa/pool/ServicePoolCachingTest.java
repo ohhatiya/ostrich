@@ -87,6 +87,7 @@ public class ServicePoolCachingTest {
                 return mock(Service.class);
             }
         });
+        when(_serviceFactory.getServiceName()).thenReturn("test");
         when(_serviceFactory.getLoadBalanceAlgorithm(any(ServicePoolStatistics.class)))
                 .thenReturn(loadBalanceAlgorithm);
         when(_serviceFactory.isRetriableException(any(Exception.class))).thenReturn(true);

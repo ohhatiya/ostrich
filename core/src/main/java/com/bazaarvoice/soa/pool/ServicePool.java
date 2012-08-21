@@ -14,6 +14,13 @@ import com.bazaarvoice.soa.exceptions.NoCachedInstancesAvailableException;
 import com.bazaarvoice.soa.exceptions.NoSuitableHostsException;
 import com.bazaarvoice.soa.exceptions.OnlyBadHostsException;
 import com.bazaarvoice.soa.healthcheck.DefaultHealthCheckResults;
+import com.bazaarvoice.soa.metrics.CounterDescriptor;
+import com.bazaarvoice.soa.metrics.Described;
+import com.bazaarvoice.soa.metrics.HistogramDescriptor;
+import com.bazaarvoice.soa.metrics.OstrichMetrics;
+import com.bazaarvoice.soa.metrics.OstrichMetricsDescriptor;
+import com.bazaarvoice.soa.metrics.RatioGaugeDescriptor;
+import com.bazaarvoice.soa.metrics.TimerDescriptor;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -55,10 +62,40 @@ class ServicePool<S> implements com.bazaarvoice.soa.ServicePool<S> {
     private final Set<ServiceEndPoint> _recentlyRemovedEndPoints;
     private final Future<?> _batchHealthChecksFuture;
     private final ServiceCache<S> _serviceCache;
+    private final OstrichMetrics<ServicePoolMetrics> _metrics;
+
+    private enum ServicePoolMetrics implements Described {
+        EXECUTIONS {
+            @Override
+            public OstrichMetricsDescriptor getDescription() {
+                return new TimerDescriptor("service-pool-executions", TimeUnit.MICROSECONDS, TimeUnit.SECONDS);
+            }
+        },
+        NUM_ATTEMPTS {
+            @Override
+            public OstrichMetricsDescriptor getDescription() {
+                return new HistogramDescriptor("service-pool-num-attempts", false);
+            }
+        },
+        ATTEMPTS_PER_EXECUTION {
+            @Override
+            public OstrichMetricsDescriptor getDescription() {
+                return new RatioGaugeDescriptor<ServicePoolMetrics, ServicePoolMetrics>("service-pool-num-attempts-per-execution", NUM_ATTEMPTS, EXECUTIONS, false);
+            }
+        },
+        BAD_END_POINTS {
+            @Override
+            public OstrichMetricsDescriptor getDescription() {
+                return new CounterDescriptor("service-pool-bad-end-points");
+            }
+        }
+
+    }
 
     ServicePool(Ticker ticker, HostDiscovery hostDiscovery,
                 ServiceFactory<S> serviceFactory, ServiceCachingPolicy cachingPolicy,
                 ScheduledExecutorService healthCheckExecutor, boolean shutdownHealthCheckExecutorOnClose) {
+        _metrics = OstrichMetrics.Builder.forMetrics(ServicePoolMetrics.class).withDomain(getClass()).withScope(serviceFactory.getServiceName()).build();
         _ticker = checkNotNull(ticker);
         _hostDiscovery = checkNotNull(hostDiscovery);
         _serviceFactory = checkNotNull(serviceFactory);
@@ -126,18 +163,24 @@ class ServicePool<S> implements com.bazaarvoice.soa.ServicePool<S> {
     public <R> R execute(RetryPolicy retry, ServiceCallback<S, R> callback) {
         Stopwatch sw = new Stopwatch(_ticker).start();
         int numAttempts = 0;
-        do {
-            ServiceEndPoint endPoint = chooseEndPoint(getValidEndPoints());
+        try {
+            do {
+                ServiceEndPoint endPoint = chooseEndPoint(getValidEndPoints());
 
-            try {
-                return executeOnEndPoint(endPoint, callback);
-            } catch (Exception e) {
-                // Don't retry if exception is too severe.
-                if (!isRetriableException(e)) {
-                    throw Throwables.propagate(e);
+                try {
+                    return executeOnEndPoint(endPoint, callback);
+                } catch (Exception e) {
+                    // Don't retry if exception is too severe.
+                    if (!isRetriableException(e)) {
+                        throw Throwables.propagate(e);
+                    }
                 }
-            }
-        } while (retry.allowRetry(++numAttempts, sw.elapsedMillis()));
+            } while (retry.allowRetry(++numAttempts, sw.elapsedMillis()));
+        } finally {
+            sw.stop();
+            _metrics.getMetric(ServicePoolMetrics.EXECUTIONS).update(sw.elapsedTime(TimeUnit.MICROSECONDS));
+            _metrics.getMetric(ServicePoolMetrics.NUM_ATTEMPTS).update(numAttempts);
+        }
 
         throw new MaxRetriesException();
     }
@@ -307,6 +350,8 @@ class ServicePool<S> implements com.bazaarvoice.soa.ServicePool<S> {
         if (_badEndPoints.add(endPoint)) {
             _healthCheckExecutor.submit(new HealthCheck(endPoint));
         }
+
+        _metrics.getMetric(ServicePoolMetrics.BAD_END_POINTS).update();
     }
 
     @VisibleForTesting
@@ -321,6 +366,8 @@ class ServicePool<S> implements com.bazaarvoice.soa.ServicePool<S> {
         public void run() {
             if (isHealthy(_endPoint)) {
                 _badEndPoints.remove(_endPoint);
+
+                _metrics.getMetric(ServicePoolMetrics.BAD_END_POINTS).update(-1);
             }
         }
     }
@@ -332,6 +379,8 @@ class ServicePool<S> implements com.bazaarvoice.soa.ServicePool<S> {
             for (ServiceEndPoint endPoint : _badEndPoints) {
                 if (isHealthy(endPoint)) {
                     _badEndPoints.remove(endPoint);
+
+                    _metrics.getMetric(ServicePoolMetrics.BAD_END_POINTS).update(-1);
                 }
 
                 // If we were interrupted during checking the health (but weren't blocked so an InterruptedException

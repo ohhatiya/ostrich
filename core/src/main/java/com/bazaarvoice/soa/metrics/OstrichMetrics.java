@@ -7,9 +7,6 @@ import com.yammer.metrics.core.Counter;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Histogram;
 import com.yammer.metrics.core.Meter;
-import com.yammer.metrics.core.Metric;
-import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.core.MetricPredicate;
 import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
 import com.yammer.metrics.util.PercentGauge;
@@ -23,7 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
-public class OstrichMetrics<E extends Enum & Described> implements Closeable {
+public class OstrichMetrics<E extends Enum<E> & Described> implements Closeable {
     private final Class<?> _class;
     private final String _uniqueScope;
     private final EnumMap<E, OstrichMetric> _metrics;
@@ -231,7 +228,7 @@ public class OstrichMetrics<E extends Enum & Described> implements Closeable {
         };
     }
 
-    public static class Builder<E extends Enum & Described> {
+    public static class Builder<E extends Enum<E> & Described> {
         private final Class<E> _enum;
         private Class _class;
         private String _uniqueScope = null;
@@ -240,7 +237,7 @@ public class OstrichMetrics<E extends Enum & Described> implements Closeable {
             _enum = checkNotNull(type);
         }
 
-        public static <E extends Enum & Described> Builder<E> forMetrics(Class<E> type) {
+        public static <E extends Enum<E> & Described> Builder<E> forMetrics(Class<E> type) {
             return new Builder<E>(type);
         }
 

@@ -55,6 +55,7 @@ public class ServiceCacheTest {
                 return mock(Service.class);
             }
         });
+        when(_factory.getServiceName()).thenReturn("test");
 
         // By default the caching policy will grow infinitely
         _cachingPolicy = mock(ServiceCachingPolicy.class);

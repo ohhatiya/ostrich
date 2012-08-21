@@ -102,6 +102,7 @@ public class ServicePoolTest {
         when(_serviceFactory.create(FOO_ENDPOINT)).thenReturn(FOO_SERVICE);
         when(_serviceFactory.create(BAR_ENDPOINT)).thenReturn(BAR_SERVICE);
         when(_serviceFactory.create(BAZ_ENDPOINT)).thenReturn(BAZ_SERVICE);
+        when(_serviceFactory.getServiceName()).thenReturn("test");
         when(_serviceFactory.getLoadBalanceAlgorithm(statsCaptor.capture())).thenReturn(_loadBalanceAlgorithm);
         when(_serviceFactory.isRetriableException(any(Exception.class))).thenReturn(true);
 

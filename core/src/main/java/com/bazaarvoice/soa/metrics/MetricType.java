@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit;
 public enum MetricType {
     GAUGE {
         public <T> OstrichMetricsDescriptor descriptor(String name) {
-            return new GaugeDescriptor<T>(name);
+            return new GaugeDescriptor(name);
         }
     },
     RATIO_GAUGE {
