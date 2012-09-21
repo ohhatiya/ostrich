@@ -14,10 +14,8 @@ public class ManagedServiceRegistration implements Managed {
     private final ServiceEndPoint _endPoint;
 
     public ManagedServiceRegistration(ServiceRegistry serviceRegistry, ServiceEndPoint endPoint) {
-        checkNotNull(serviceRegistry);
-        checkNotNull(endPoint);
-        _serviceRegistry = serviceRegistry;
-        _endPoint = endPoint;
+        _serviceRegistry = checkNotNull(serviceRegistry);
+        _endPoint = checkNotNull(endPoint);
     }
 
     @Override
