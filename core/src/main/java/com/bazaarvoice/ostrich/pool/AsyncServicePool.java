@@ -116,6 +116,7 @@ class AsyncServicePool<S> implements com.bazaarvoice.ostrich.AsyncServicePool<S>
                     int numAttempts = 0;
 
                     try {
+                        Exception lastException;
                         do {
                             try {
                                 R result = _pool.executeOnEndPoint(endPoint, callback);
@@ -128,10 +129,12 @@ class AsyncServicePool<S> implements com.bazaarvoice.ostrich.AsyncServicePool<S>
                                 if (!_pool.isRetriableException(e)) {
                                     throw e;
                                 }
+
+                                lastException = e;
                             }
                         } while (retry.allowRetry(++numAttempts, sw.elapsedMillis()));
 
-                        throw new MaxRetriesException();
+                        throw new MaxRetriesException( "Exception from the last retry attempt", lastException );
                     } finally {
                         timer.stop();
                     }
