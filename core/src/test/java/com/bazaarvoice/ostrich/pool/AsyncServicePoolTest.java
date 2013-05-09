@@ -217,7 +217,7 @@ public class AsyncServicePoolTest {
 
             // Verify that the MaxRetriesException propagates the underlying exception from the service pool
             MaxRetriesException mre = (MaxRetriesException) e.getCause();
-            assertTrue( mre.getCause() instanceof IllegalArgumentException );
+            assertTrue(mre.getCause() instanceof IllegalArgumentException);
         }
     }
 

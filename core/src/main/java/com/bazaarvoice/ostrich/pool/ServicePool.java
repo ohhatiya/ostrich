@@ -202,11 +202,12 @@ class ServicePool<S> implements com.bazaarvoice.ostrich.ServicePool<S> {
                     throw Throwables.propagate(e);
                 }
 
+                LOG.info("Retriable exception from End point ID: {}", endPoint.getId(), e);
                 lastException = e;
             }
         } while (retry.allowRetry(++numAttempts, sw.elapsedMillis()));
 
-        throw new MaxRetriesException( "Exception from the last retry attempt", lastException );
+        throw new MaxRetriesException(lastException);
     }
 
     @Override

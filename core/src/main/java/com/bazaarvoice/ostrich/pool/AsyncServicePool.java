@@ -14,6 +14,8 @@ import com.yammer.metrics.core.Histogram;
 import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.Timer;
 import com.yammer.metrics.core.TimerContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -25,6 +27,8 @@ import java.util.concurrent.TimeUnit;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 class AsyncServicePool<S> implements com.bazaarvoice.ostrich.AsyncServicePool<S> {
+    private static final Logger LOG = LoggerFactory.getLogger( AsyncServicePool.class );
+
     private static final ServiceEndPointPredicate ALL_END_POINTS = new ServiceEndPointPredicate() {
         @Override
         public boolean apply(ServiceEndPoint endPoint) {
@@ -131,10 +135,11 @@ class AsyncServicePool<S> implements com.bazaarvoice.ostrich.AsyncServicePool<S>
                                 }
 
                                 lastException = e;
+                                LOG.info("Retriable exception from End point ID: {}", endPoint.getId(), e);
                             }
                         } while (retry.allowRetry(++numAttempts, sw.elapsedMillis()));
 
-                        throw new MaxRetriesException( "Exception from the last retry attempt", lastException );
+                        throw new MaxRetriesException(lastException);
                     } finally {
                         timer.stop();
                     }

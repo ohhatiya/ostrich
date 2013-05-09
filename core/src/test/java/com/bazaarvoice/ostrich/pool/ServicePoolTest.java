@@ -347,7 +347,7 @@ public class ServicePoolTest {
         } catch (MaxRetriesException expected) {
             // Make sure we tried 3 times.
             verify(retry).allowRetry(eq(3), anyLong());
-            assertTrue( expected.getCause() instanceof IllegalArgumentException);
+            assertTrue(expected.getCause() instanceof IllegalArgumentException);
         }
     }
 
