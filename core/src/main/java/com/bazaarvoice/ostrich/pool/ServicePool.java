@@ -185,8 +185,8 @@ class ServicePool<S> implements com.bazaarvoice.ostrich.ServicePool<S> {
     public <R> R execute(PartitionContext partitionContext, RetryPolicy retry, ServiceCallback<S, R> callback) {
         Stopwatch sw = new Stopwatch(_ticker).start();
         int numAttempts = 0;
-
         Exception lastException;
+
         do {
             ServiceEndPoint endPoint = chooseEndPoint(getValidEndPoints(), partitionContext);
 
@@ -202,7 +202,7 @@ class ServicePool<S> implements com.bazaarvoice.ostrich.ServicePool<S> {
                     throw Throwables.propagate(e);
                 }
 
-                LOG.info("Retriable exception from End point ID: {}", endPoint.getId(), e);
+                LOG.info("Retriable exception from end point id: {}", endPoint.getId(), e);
                 lastException = e;
             }
         } while (retry.allowRetry(++numAttempts, sw.elapsedMillis()));
