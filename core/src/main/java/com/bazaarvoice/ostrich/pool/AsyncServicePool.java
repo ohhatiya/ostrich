@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 class AsyncServicePool<S> implements com.bazaarvoice.ostrich.AsyncServicePool<S> {
-    private static final Logger LOG = LoggerFactory.getLogger( AsyncServicePool.class );
+    private static final Logger LOG = LoggerFactory.getLogger(AsyncServicePool.class);
 
     private static final ServiceEndPointPredicate ALL_END_POINTS = new ServiceEndPointPredicate() {
         @Override
