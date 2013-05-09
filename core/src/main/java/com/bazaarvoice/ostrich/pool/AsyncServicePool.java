@@ -136,7 +136,7 @@ class AsyncServicePool<S> implements com.bazaarvoice.ostrich.AsyncServicePool<S>
                                 }
 
                                 lastException = e;
-                                LOG.info("Retriable exception from end point id: {}", endPoint.getId(), e);
+                                LOG.info("Retriable exception from end point id: " + endPoint.getId(), e);
                             }
                         } while (retry.allowRetry(++numAttempts, sw.elapsedMillis()));
 
