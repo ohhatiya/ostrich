@@ -299,7 +299,8 @@ class ServicePool<S> implements com.bazaarvoice.ostrich.ServicePool<S> {
                     _serviceCache.checkIn(endPoint, service);
                 } catch (Exception e) {
                     // This should never happen, but log just in case.
-                    LOG.warn("Error returning end point to cache. End point ID: {}", endPoint.getId());
+                    LOG.warn("Error returning end point to cache. End point ID: {}, {}",
+                            endPoint.getId(), e.toString());
                     LOG.debug("Exception", e);
                 }
             }
