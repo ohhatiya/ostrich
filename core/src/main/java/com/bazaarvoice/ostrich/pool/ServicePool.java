@@ -281,8 +281,7 @@ class ServicePool<S> implements com.bazaarvoice.ostrich.ServicePool<S> {
                 timer.stop();
             }
         } catch (NoCachedInstancesAvailableException e) {
-            LOG.debug("Service cache exhausted. End point ID: {}", endPoint.getId());
-            LOG.debug("Exception", e);
+            LOG.debug("Service cache exhausted. End point ID: {}", endPoint.getId(), e);
             // Don't mark an end point as bad just because there are no cached end points for it.
             throw e;
         } catch (Exception e) {
@@ -291,8 +290,7 @@ class ServicePool<S> implements com.bazaarvoice.ostrich.ServicePool<S> {
                 // layer while trying to communicate with the end point.  These errors are often transient, so we
                 // enqueue a health check for the end point and mark it as unavailable for the time being.
                 markEndPointAsBad(endPoint);
-                LOG.debug("Bad end point discovered. End point ID: {}", endPoint.getId());
-                LOG.debug("Exception", e);
+                LOG.debug("Bad end point discovered. End point ID: {}", endPoint.getId(), e);
             }
             throw e;
         } finally {
@@ -302,7 +300,7 @@ class ServicePool<S> implements com.bazaarvoice.ostrich.ServicePool<S> {
                 } catch (Exception e) {
                     // This should never happen, but log just in case.
                     LOG.warn("Error returning end point to cache. End point ID: {}", endPoint.getId());
-                    LOG.warn("Exception", e);
+                    LOG.debug("Exception", e);
                 }
             }
         }
