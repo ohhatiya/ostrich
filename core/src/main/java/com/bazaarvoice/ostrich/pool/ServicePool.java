@@ -202,7 +202,7 @@ class ServicePool<S> implements com.bazaarvoice.ostrich.ServicePool<S> {
                     throw Throwables.propagate(e);
                 }
 
-                LOG.info("Retriable exception from end point id: {}, Exception: {}", endPoint.getId(), e.toString());
+                LOG.info("Retriable exception from end point id: {}, {}", endPoint.getId(), e.toString());
                 LOG.debug("Exception", e);
                 lastException = e;
             }
