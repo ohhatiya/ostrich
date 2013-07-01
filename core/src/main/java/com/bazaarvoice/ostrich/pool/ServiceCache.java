@@ -5,8 +5,9 @@ import com.bazaarvoice.ostrich.ServiceFactory;
 import com.bazaarvoice.ostrich.exceptions.NoCachedInstancesAvailableException;
 import com.bazaarvoice.ostrich.metrics.Metrics;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ConcurrentHashMultiset;
 import com.google.common.collect.MapMaker;
-import com.google.common.collect.Maps;
+import com.google.common.collect.Multiset;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.yammer.metrics.core.Timer;
 import com.yammer.metrics.core.TimerContext;
@@ -17,8 +18,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.util.AbstractMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -46,7 +49,8 @@ class ServiceCache<S> implements Closeable {
     private final GenericKeyedObjectPool<ServiceEndPoint, S> _pool;
     private final AtomicLong _revisionNumber = new AtomicLong();
     private final Map<ServiceEndPoint, Long> _invalidRevisions = new MapMaker().weakKeys().makeMap();
-    private final Map<S, Long> _checkOutRevisions = Maps.newConcurrentMap();
+    private final ConcurrentMap<ServiceEndPointInstancePair, Long> _checkOutRevisions = new MapMaker().makeMap();
+    private final Multiset<ServiceEndPointInstancePair> _checkOutCounts = ConcurrentHashMultiset.create();
     private final Future<?> _evictionFuture;
     private volatile boolean _isClosed = false;
     private final Metrics _metrics;
@@ -169,12 +173,15 @@ class ServiceCache<S> implements Closeable {
     public S checkOut(ServiceEndPoint endPoint) throws Exception {
         checkNotNull(endPoint);
         _requestCount.incrementAndGet();
+        long currentRevision = _revisionNumber.get();
 
         try {
             S service = _pool.borrowObject(endPoint);
 
-            // Remember the revision that we've checked this service out on in case we need to invalidate it later
-            _checkOutRevisions.put(service, _revisionNumber.incrementAndGet());
+            ServiceEndPointInstancePair pair = new ServiceEndPointInstancePair(endPoint, service);
+            _checkOutCounts.add(pair);
+            // Update the checked out revision if this is the first checkout.
+            _checkOutRevisions.putIfAbsent(pair, currentRevision);
 
             return service;
         } catch (NoSuchElementException e) {
@@ -197,15 +204,15 @@ class ServiceCache<S> implements Closeable {
         checkNotNull(endPoint);
         checkNotNull(service);
 
-        // Figure out if we should check this revision in.  If it was created before the last known invalid revision
-        // for this particular end point, or the cache is closed, then we shouldn't check it in.
-        Long invalidRevision = _invalidRevisions.get(endPoint);
-        Long serviceRevision = _checkOutRevisions.remove(service);
-
-        if (_isClosed || (invalidRevision != null && serviceRevision < invalidRevision)) {
+        ServiceEndPointInstancePair pair = new ServiceEndPointInstancePair(endPoint, service);
+        if (_isClosed || !pair.isValid()) {
             _pool.invalidateObject(endPoint, service);
         } else {
             _pool.returnObject(endPoint, service);
+        }
+
+        if (_checkOutCounts.remove(pair, 1) == 1) {
+            _checkOutRevisions.remove(pair);
         }
     }
 
@@ -268,4 +275,23 @@ class ServiceCache<S> implements Closeable {
             _serviceFactory.destroy(endPoint, service);
         }
     }
+
+    private class ServiceEndPointInstancePair extends AbstractMap.SimpleImmutableEntry<ServiceEndPoint, S> {
+        private ServiceEndPointInstancePair(ServiceEndPoint endPoint, S service) {
+            super(endPoint, service);
+        }
+
+        /**
+         * Checks the validity of this pair.  If the instance was checked out before the last known invalid revision of
+         * the end point, it is invalid.
+         *
+         * @return {@code true} if this pair has not been invalidated. {@code false} otherwise.
+         */
+        private boolean isValid() {
+            Long invalidRevision = _invalidRevisions.get(getKey());
+            Long serviceRevision = _checkOutRevisions.get(this);
+
+            return serviceRevision == null || invalidRevision == null || serviceRevision >= invalidRevision;
+        }
+   }
 }

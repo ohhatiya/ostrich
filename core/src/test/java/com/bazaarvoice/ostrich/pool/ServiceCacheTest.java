@@ -35,6 +35,8 @@ import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -143,6 +145,50 @@ public class ServiceCacheTest {
     }
 
     @Test
+    public void testDuplicateServiceInstancesAllowed() throws Exception {
+        Service service = mock(Service.class);
+        when(_factory.create(any(ServiceEndPoint.class))).thenReturn(service);
+        when(_cachingPolicy.getMaxNumServiceInstancesPerEndPoint()).thenReturn(-1);
+
+        ServiceCache<Service> cache = newCache();
+
+        assertSame(service, cache.checkOut(END_POINT));
+        assertSame(service, cache.checkOut(END_POINT));
+        assertEquals(2, cache.getNumActiveInstances(END_POINT));
+
+        cache.checkIn(END_POINT, service);
+        cache.checkIn(END_POINT, service);
+        assertEquals(2, cache.getNumIdleInstances(END_POINT));
+    }
+
+    @Test
+    public void testSameServiceInstanceAllowedForMultipleEndPoints() throws Exception {
+        Service service = mock(Service.class);
+        when(_factory.create(any(ServiceEndPoint.class))).thenReturn(service);
+
+        ServiceCache<Service> cache = newCache();
+
+        ServiceEndPoint endPoint1 = mock(ServiceEndPoint.class);
+        ServiceEndPoint endPoint2 = mock(ServiceEndPoint.class);
+
+        assertSame(service, cache.checkOut(endPoint1));
+        assertEquals(1, cache.getNumActiveInstances(endPoint1));
+        assertEquals(0, cache.getNumActiveInstances(endPoint2));
+
+        assertSame(service, cache.checkOut(endPoint2));
+        assertEquals(1, cache.getNumActiveInstances(endPoint1));
+        assertEquals(1, cache.getNumActiveInstances(endPoint2));
+
+        cache.checkIn(endPoint1, service);
+        assertEquals(1, cache.getNumIdleInstances(endPoint1));
+        assertEquals(0, cache.getNumIdleInstances(endPoint2));
+
+        cache.checkIn(endPoint2, service);
+        assertEquals(1, cache.getNumIdleInstances(endPoint1));
+        assertEquals(1, cache.getNumIdleInstances(endPoint2));
+    }
+
+    @Test
     public void testEvictedEndPointDestroyedAutomaticEviction() throws Exception {
         // Make the cache only hold one instance total.
         when(_cachingPolicy.getMaxNumServiceInstances()).thenReturn(1);
@@ -186,6 +232,85 @@ public class ServiceCacheTest {
         cache.checkIn(END_POINT, service);
 
         assertNotSame(service, cache.checkOut(END_POINT));
+    }
+
+    @Test
+    public void testEvictedEndPointWhileDuplicateServiceInstancesCheckedOut() throws Exception {
+        Service service = mock(Service.class);
+        when(_factory.create(any(ServiceEndPoint.class))).thenReturn(service);
+        when(_cachingPolicy.getMaxNumServiceInstancesPerEndPoint()).thenReturn(-1);
+
+        ServiceCache<Service> cache = newCache();
+
+        cache.checkOut(END_POINT);
+        cache.checkOut(END_POINT);
+
+        cache.evict(END_POINT);
+
+        cache.checkIn(END_POINT, service);
+        cache.checkIn(END_POINT, service);
+
+        verify(_factory, times(2)).destroy(END_POINT, service);
+    }
+
+    @Test
+    public void testEvictedEndPointWhileServiceInstanceCheckedOutMoreDuplicatesCheckedOut() throws Exception {
+        Service service = mock(Service.class);
+        when(_factory.create(any(ServiceEndPoint.class))).thenReturn(service);
+        when(_cachingPolicy.getMaxNumServiceInstancesPerEndPoint()).thenReturn(-1);
+
+        ServiceCache<Service> cache = newCache();
+
+        cache.checkOut(END_POINT);
+
+        cache.evict(END_POINT);
+
+        // Check out a new one after eviction, while a copy is still checked out.
+        cache.checkOut(END_POINT);
+
+        cache.checkIn(END_POINT, service);
+        cache.checkIn(END_POINT, service);
+
+        verify(_factory, times(2)).destroy(END_POINT, service);
+    }
+
+    @Test
+    public void testEvictedEndPointWhileServiceInstanceCheckedOutAllowsSubsequentCopies() throws Exception {
+        Service service = mock(Service.class);
+        when(_factory.create(any(ServiceEndPoint.class))).thenReturn(service);
+
+        ServiceCache<Service> cache = newCache();
+
+        cache.checkOut(END_POINT);
+        cache.evict(END_POINT);
+        cache.checkIn(END_POINT, service);
+
+        cache.checkOut(END_POINT);
+        cache.checkIn(END_POINT, service);
+
+        verify(_factory, times(1)).destroy(END_POINT, service);
+    }
+
+    @Test
+    public void testEvictedEndPointWhileServiceInstanceCheckedOutAllowsSameInstanceOtherEndPoints() throws Exception {
+        Service service = mock(Service.class);
+        when(_factory.create(any(ServiceEndPoint.class))).thenReturn(service);
+
+        ServiceCache<Service> cache = newCache();
+
+        ServiceEndPoint invalidEndPoint = mock(ServiceEndPoint.class);
+        ServiceEndPoint validEndPoint = mock(ServiceEndPoint.class);
+
+        cache.checkOut(invalidEndPoint);
+        cache.checkOut(validEndPoint);
+
+        cache.evict(invalidEndPoint);
+
+        cache.checkIn(validEndPoint, service);
+        cache.checkIn(invalidEndPoint, service);
+
+        verify(_factory, never()).destroy(validEndPoint, service);
+        verify(_factory, times(1)).destroy(invalidEndPoint, service);
     }
 
     @Test(expected = NoCachedInstancesAvailableException.class)
